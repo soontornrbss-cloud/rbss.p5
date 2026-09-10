@@ -16,7 +16,8 @@ import {
   Monitor, 
   Smartphone,
   ShieldAlert,
-  GraduationCap
+  GraduationCap,
+  Cloud
 } from 'lucide-react';
 
 interface AdminHtmlExamModalProps {
@@ -528,13 +529,15 @@ export const AdminHtmlExamModal: React.FC<AdminHtmlExamModalProps> = ({
           </div>
 
           {/* Modal Footer Actions */}
-          <div className="bg-slate-50 px-5 py-3.5 border-t border-slate-200 flex items-center justify-between shrink-0">
-            <div className="flex items-center gap-1.5 text-xs text-slate-500">
-              <ShieldAlert className="w-4 h-4 text-violet-600" />
-              <span>โหมด Admin: โค้ด HTML จะถูกบันทึกและพร้อมให้นักเรียนเข้าทำข้อสอบออนไลน์ได้ทันที</span>
+          <div className="bg-slate-50 px-5 py-3.5 border-t border-slate-200 flex flex-col sm:flex-row items-center justify-between gap-3 shrink-0">
+            <div className="flex items-center gap-1.5 text-xs text-slate-600">
+              <Cloud className="w-4 h-4 text-emerald-600 shrink-0" />
+              <span>
+                <strong className="text-emerald-700">ซิงค์ Cloud เรียลไทม์:</strong> เมื่อกดบันทึก โค้ดและข้อสอบจะถูกอัปเดต และเครื่องอื่น ๆ จะเห็นข้อสอบที่อัปเดตตรงกันทันที
+              </span>
             </div>
 
-            <div className="flex items-center gap-2">
+            <div className="flex items-center gap-2 self-end sm:self-auto">
               <button
                 type="button"
                 onClick={onClose}
@@ -549,7 +552,7 @@ export const AdminHtmlExamModal: React.FC<AdminHtmlExamModalProps> = ({
                 className="px-5 py-2 text-xs font-bold bg-violet-700 hover:bg-violet-800 text-white rounded-lg shadow-sm transition-all inline-flex items-center gap-1.5 cursor-pointer active:scale-95"
               >
                 <CheckSquare className="w-4 h-4 text-amber-300" />
-                <span>{initialExam ? 'บันทึกการแก้ไขข้อสอบ HTML' : 'บันทึกข้อสอบออนไลน์ HTML'}</span>
+                <span>{initialExam ? 'บันทึกและอัปเดตขึ้น Cloud' : 'บันทึกข้อสอบ HTML ขึ้น Cloud'}</span>
               </button>
             </div>
           </div>

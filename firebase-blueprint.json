@@ -1,0 +1,22 @@
+{
+  "entities": {
+    "Subject": {
+      "collection": "subjects",
+      "description": "School subject blocks containing course info and attached exams",
+      "fields": {
+        "id": { "type": "string", "description": "Subject ID" },
+        "code": { "type": "string", "description": "Course code e.g. ค11101" },
+        "name": { "type": "string", "description": "Course name e.g. คณิตศาสตร์ 1" },
+        "gradeId": { "type": "string", "description": "Grade level id (p1 - m3)" },
+        "term": { "type": "string", "description": "Semester term (1, 2, all)" },
+        "academicYear": { "type": "string", "description": "Academic year e.g. 2567" },
+        "learningArea": { "type": "string", "description": "Learning Area category" },
+        "teachers": { "type": "array", "description": "Teacher names" },
+        "exams": { "type": "array", "description": "Array of ExamPaper objects including HTML interactive exam content" },
+        "creditHours": { "type": "number", "description": "Credit hours" },
+        "description": { "type": "string", "description": "Subject description" },
+        "updatedAt": { "type": "string", "description": "Last updated timestamp" }
+      }
+    }
+  }
+}

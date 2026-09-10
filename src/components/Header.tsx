@@ -7,9 +7,12 @@ import {
   RotateCcw,
   Sparkles,
   School,
-  Code2
+  Code2,
+  Cloud,
+  RefreshCw
 } from 'lucide-react';
 import { GradeConfig } from '../types';
+import { CloudSyncStatus } from '../services/examSyncService';
 
 interface HeaderProps {
   searchQuery: string;
@@ -24,6 +27,9 @@ interface HeaderProps {
   activeGrade: GradeConfig;
   totalSubjects: number;
   totalExams: number;
+  cloudStatus?: CloudSyncStatus;
+  cloudMessage?: string;
+  onForceSync?: () => void;
 }
 
 export const Header: React.FC<HeaderProps> = ({
@@ -39,6 +45,9 @@ export const Header: React.FC<HeaderProps> = ({
   activeGrade,
   totalSubjects,
   totalExams,
+  cloudStatus = 'synced',
+  cloudMessage,
+  onForceSync,
 }) => {
   return (
     <header className="bg-white border-b border-slate-200 sticky top-0 z-30 shadow-xs" id="main-header">
@@ -81,6 +90,49 @@ export const Header: React.FC<HeaderProps> = ({
 
             {/* Quick Actions & Reset Button */}
             <div className="flex items-center gap-2 self-start md:self-auto flex-wrap">
+              {/* Cloud Real-Time Sync Indicator */}
+              <div 
+                id="cloud-sync-status-badge"
+                className={`inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-medium border transition-all ${
+                  cloudStatus === 'synced' 
+                    ? 'bg-emerald-950/60 text-emerald-300 border-emerald-500/50 shadow-xs'
+                    : cloudStatus === 'syncing' || cloudStatus === 'connecting'
+                    ? 'bg-amber-950/60 text-amber-300 border-amber-500/50 animate-pulse'
+                    : 'bg-rose-950/60 text-rose-300 border-rose-500/50'
+                }`}
+                title={cloudMessage || 'ระบบซิงค์ Firebase Firestore: เมื่อแก้ไขหรือบันทึกข้อสอบจากเครื่องใด เครื่องอื่นจะเห็นทันที'}
+              >
+                <span className="relative flex h-2 w-2">
+                  {cloudStatus === 'synced' && (
+                    <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-emerald-400 opacity-75"></span>
+                  )}
+                  <span className={`relative inline-flex rounded-full h-2 w-2 ${
+                    cloudStatus === 'synced' ? 'bg-emerald-400' : cloudStatus === 'syncing' ? 'bg-amber-400' : 'bg-rose-400'
+                  }`}></span>
+                </span>
+                <Cloud className="w-3.5 h-3.5" />
+                <span>
+                  {cloudStatus === 'synced' 
+                    ? 'คลาวด์สด (Real-time)' 
+                    : cloudStatus === 'syncing' 
+                    ? 'กำลังอัปเดต Cloud...' 
+                    : 'ออฟไลน์'}
+                </span>
+                {onForceSync && (
+                  <button
+                    type="button"
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      onForceSync();
+                    }}
+                    title="กดเพื่อบังคับซิงค์ข้อมูลทั้งหมดขึ้น Cloud ใหม่"
+                    className="ml-1 hover:text-white p-0.5 rounded cursor-pointer transition-colors"
+                  >
+                    <RefreshCw className={`w-3 h-3 ${cloudStatus === 'syncing' ? 'animate-spin' : ''}`} />
+                  </button>
+                )}
+              </div>
+
               {onOpenAdminHtml && (
                 <button
                   type="button"

@@ -18,6 +18,16 @@ import { AdminHtmlExamModal } from './components/AdminHtmlExamModal';
 import { HtmlExamPlayerModal } from './components/HtmlExamPlayerModal';
 import { Footer } from './components/Footer';
 import { 
+  subscribeToSubjects, 
+  saveSubjectToCloud, 
+  deleteSubjectFromCloud, 
+  saveExamToSubjectInCloud, 
+  deleteExamFromSubjectInCloud, 
+  seedInitialSubjects, 
+  syncAllSubjectsToCloud,
+  CloudSyncStatus
+} from './services/examSyncService';
+import { 
   PlusCircle, 
   FileText, 
   CheckCircle2, 
@@ -27,7 +37,8 @@ import {
   School,
   GraduationCap,
   Code2,
-  Sparkles
+  Sparkles,
+  Cloud
 } from 'lucide-react';
 
 const STORAGE_KEY = 'rbss_exam_repository_data_v1';
@@ -47,7 +58,30 @@ export default function App() {
     return INITIAL_SUBJECTS;
   });
 
-  // Save to localStorage whenever subjects change
+  // Cloud Sync State
+  const [cloudStatus, setCloudStatus] = useState<CloudSyncStatus>('connecting');
+  const [cloudMessage, setCloudMessage] = useState<string>('กำลังเชื่อมต่อฐานข้อมูล Cloud (Firebase)...');
+
+  // Real-time Firestore Cloud Synchronization
+  useEffect(() => {
+    const unsubscribe = subscribeToSubjects(
+      (updatedSubjects) => {
+        setSubjects(updatedSubjects);
+      },
+      (status, message) => {
+        setCloudStatus(status);
+        if (message) {
+          setCloudMessage(message);
+        }
+      }
+    );
+
+    return () => {
+      unsubscribe();
+    };
+  }, []);
+
+  // Save to localStorage as a fallback local cache
   useEffect(() => {
     try {
       localStorage.setItem(STORAGE_KEY, JSON.stringify(subjects));
@@ -149,28 +183,42 @@ export default function App() {
     });
   }, [currentGradeSubjects, selectedAreaFilter, selectedYear, selectedTerm, searchQuery]);
 
-  // 5. Actions Handlers
+  // 5. Actions Handlers with Real-Time Cloud Persistence
   // Add new subject dynamically
-  const handleAddSubject = (newSubject: SubjectBlock) => {
+  const handleAddSubject = async (newSubject: SubjectBlock) => {
+    // Optimistic UI update
     setSubjects((prev) => [newSubject, ...prev]);
-    // Switch to that grade if it was added to another grade
     if (newSubject.gradeId !== activeGradeId) {
       setActiveGradeId(newSubject.gradeId);
     }
-    showToast(`เพิ่มรายวิชา "${newSubject.name}" (${newSubject.code}) สำเร็จเรียบร้อยแล้ว`);
+    showToast(`เพิ่มรายวิชา "${newSubject.name}" (${newSubject.code}) สำเร็จ (กำลังซิงค์ขึ้น Cloud)`);
+
+    try {
+      await saveSubjectToCloud(newSubject);
+      showToast(`บันทึกรายวิชา "${newSubject.name}" ขึ้น Cloud สำเร็จ ทุกเครื่องซิงค์ตรงกัน`);
+    } catch (err: any) {
+      console.error('Failed to sync new subject to cloud:', err);
+      showToast('บันทึกในเครื่องแล้ว แต่เกิดข้อผิดพลาดในการส่งขึ้น Cloud');
+    }
   };
 
   // Delete subject
-  const handleDeleteSubject = (subjectId: string, subjectName: string) => {
-    const confirmDelete = window.confirm(`คุณแน่ใจหรือไม่ว่าต้องการลบรายวิชา "${subjectName}" และข้อสอบทั้งหมดในวิชานี้?`);
+  const handleDeleteSubject = async (subjectId: string, subjectName: string) => {
+    const confirmDelete = window.confirm(`คุณแน่ใจหรือไม่ว่าต้องการลบรายวิชา "${subjectName}" และข้อสอบทั้งหมดในวิชานี้? (ข้อมูลจะถูกลบออกจาก Cloud ด้วย)`);
     if (confirmDelete) {
       setSubjects((prev) => prev.filter((s) => s.id !== subjectId));
       showToast(`ลบรายวิชา "${subjectName}" ออกจากระบบแล้ว`);
+
+      try {
+        await deleteSubjectFromCloud(subjectId);
+      } catch (err: any) {
+        console.error('Failed to delete subject from cloud:', err);
+      }
     }
   };
 
   // Add exam paper into a specific subject
-  const handleAddExam = (subjectId: string, newExam: ExamPaper) => {
+  const handleAddExam = async (subjectId: string, newExam: ExamPaper) => {
     setSubjects((prev) =>
       prev.map((sub) => {
         if (sub.id === subjectId) {
@@ -182,12 +230,20 @@ export default function App() {
         return sub;
       })
     );
-    showToast(`แนบข้อสอบ "${newExam.title}" เข้าสู่รายวิชาสำเร็จ`);
+    showToast(`กำลังซิงค์ข้อสอบ "${newExam.title}" ขึ้น Cloud...`);
+
+    try {
+      await saveExamToSubjectInCloud(subjectId, newExam, subjects);
+      showToast(`ซิงค์ข้อสอบ "${newExam.title}" ขึ้น Cloud สำเร็จ ทุกเครื่องเห็นพร้อมกัน`);
+    } catch (err: any) {
+      console.error('Failed to sync exam to cloud:', err);
+      showToast('บันทึกในเครื่องแล้ว แต่ไม่สามารถซิงค์ Cloud ได้');
+    }
   };
 
   // Delete exam paper from a subject
-  const handleDeleteExam = (subjectId: string, examId: string, examTitle: string) => {
-    const confirmDelete = window.confirm(`คุณแน่ใจหรือไม่ว่าต้องการลบข้อสอบ "${examTitle}"?`);
+  const handleDeleteExam = async (subjectId: string, examId: string, examTitle: string) => {
+    const confirmDelete = window.confirm(`คุณแน่ใจหรือไม่ว่าต้องการลบข้อสอบ "${examTitle}"? (จะลบออกจาก Cloud ด้วย)`);
     if (confirmDelete) {
       setSubjects((prev) =>
         prev.map((sub) => {
@@ -201,16 +257,42 @@ export default function App() {
         })
       );
       showToast(`ลบข้อสอบ "${examTitle}" เรียบร้อยแล้ว`);
+
+      try {
+        await deleteExamFromSubjectInCloud(subjectId, examId, subjects);
+      } catch (err: any) {
+        console.error('Failed to delete exam from cloud:', err);
+      }
     }
   };
 
-  // Reset to demo initial data
-  const handleResetData = () => {
-    const confirmReset = window.confirm('คุณต้องการคืนค่าข้อมูลตัวอย่างเริ่มต้นทั้งหมดใช่หรือไม่? (ข้อมูลที่คุณเพิ่มจะถูกแทนที่)');
+  // Reset to demo initial data in Cloud
+  const handleResetData = async () => {
+    const confirmReset = window.confirm('คุณต้องการคืนค่าข้อมูลตัวอย่างเริ่มต้นทั้งหมดใช่หรือไม่? ข้อมูลบนระบบ Cloud จะถูกอัปเดตใหม่เพื่อให้ทุกเครื่องแสดงตรงกัน');
     if (confirmReset) {
       setSubjects(INITIAL_SUBJECTS);
       localStorage.removeItem(STORAGE_KEY);
-      showToast('คืนค่าข้อมูลรายวิชาและคลังข้อสอบตัวอย่างสำเร็จ');
+      showToast('กำลังคืนค่าและซิงค์ข้อมูลเริ่มต้นขึ้น Cloud...');
+
+      try {
+        await seedInitialSubjects(INITIAL_SUBJECTS);
+        showToast('คืนค่าข้อมูลรายวิชาและคลังข้อสอบตัวอย่างสำเร็จ ทุกเครื่องซิงค์ตรงกันแล้ว');
+      } catch (err: any) {
+        console.error('Failed to seed cloud subjects:', err);
+        showToast('คืนค่าข้อมูลในเครื่องสำเร็จ');
+      }
+    }
+  };
+
+  // Force manual sync all to Cloud
+  const handleForceSync = async () => {
+    showToast('กำลังส่งข้อมูลรายวิชาและข้อสอบทั้งหมดขึ้น Cloud...');
+    try {
+      await syncAllSubjectsToCloud(subjects);
+      showToast('ซิงค์ข้อมูลทั้งหมดขึ้น Cloud เรียบร้อยแล้ว ทุกเครื่องเห็นข้อมูลเดียวกัน');
+    } catch (err: any) {
+      console.error('Force sync error:', err);
+      showToast(`เกิดข้อผิดพลาดในการซิงค์: ${err?.message || ''}`);
     }
   };
 
@@ -238,8 +320,9 @@ export default function App() {
     setIsAdminHtmlModalOpen(true);
   };
 
-  // Save HTML exam (new or update existing)
-  const handleSaveHtmlExam = (subjectId: string, exam: ExamPaper) => {
+  // Save HTML exam (new or update existing) with direct Firestore Cloud sync
+  const handleSaveHtmlExam = async (subjectId: string, exam: ExamPaper) => {
+    // 1. Optimistic update in state so current screen updates instantly
     setSubjects((prev) =>
       prev.map((sub) => {
         if (sub.id === subjectId) {
@@ -259,7 +342,16 @@ export default function App() {
         return sub;
       })
     );
-    showToast(`บันทึกข้อสอบออนไลน์ HTML "${exam.title}" เรียบร้อยแล้ว`);
+    showToast(`กำลังบันทึกและอัปเดตข้อสอบ HTML "${exam.title}" ขึ้น Cloud...`);
+
+    // 2. Persist to Firestore Cloud Database so all other machines get updated immediately
+    try {
+      await saveExamToSubjectInCloud(subjectId, exam, subjects);
+      showToast(`อัปเดตข้อสอบ HTML "${exam.title}" ขึ้น Cloud สำเร็จ! ทุกเครื่องเห็นข้อสอบใหม่ทันที`);
+    } catch (err: any) {
+      console.error('Failed to save HTML exam to Firestore:', err);
+      showToast(`บันทึกในเครื่องแล้ว แต่เกิดปัญหาในการซิงค์ขึ้น Cloud: ${err?.message || ''}`);
+    }
   };
 
   // Open Interactive HTML Player
@@ -296,6 +388,9 @@ export default function App() {
         activeGrade={activeGrade}
         totalSubjects={totalSubjectsCount}
         totalExams={totalExamsCount}
+        cloudStatus={cloudStatus}
+        cloudMessage={cloudMessage}
+        onForceSync={handleForceSync}
       />
 
       {/* Grade Level Navigation (ป.1 - ม.3 Tabs) */}
