@@ -1,0 +1,6 @@
+{
+  "name": "ระบบคลังเก็บข้อสอบออนไลน์ โรงเรียนราษฎร์บำรุงศิลป์",
+  "description": "ระบบคลังเก็บข้อสอบออนไลน์และจัดการรายวิชา ระดับชั้น ป.1 - ม.3 โรงเรียนราษฎร์บำรุงศิลป์",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
