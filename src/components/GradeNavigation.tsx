@@ -3,24 +3,27 @@ import { GradeConfig, GradeId, SubjectBlock } from '../types';
 import { BookOpen, Layers } from 'lucide-react';
 
 interface GradeNavigationProps {
-  grades: GradeConfig[];
+  grades?: GradeConfig[];
   activeGradeId: GradeId;
   onSelectGrade: (gradeId: GradeId) => void;
-  subjects: SubjectBlock[];
+  subjects?: SubjectBlock[];
+  allSubjects?: SubjectBlock[];
 }
 
 export const GradeNavigation: React.FC<GradeNavigationProps> = ({
-  grades,
+  grades = [],
   activeGradeId,
   onSelectGrade,
   subjects,
+  allSubjects,
 }) => {
-  const primaryGrades = grades.filter((g) => g.level === 'primary');
-  const secondaryGrades = grades.filter((g) => g.level === 'secondary');
+  const effectiveSubjects = subjects || allSubjects || [];
+  const primaryGrades = (grades || []).filter((g) => g.level === 'primary');
+  const secondaryGrades = (grades || []).filter((g) => g.level === 'secondary');
 
   const getCountsForGrade = (gradeId: GradeId) => {
-    const gradeSubjects = subjects.filter((s) => s.gradeId === gradeId);
-    const examCount = gradeSubjects.reduce((acc, curr) => acc + curr.exams.length, 0);
+    const gradeSubjects = effectiveSubjects.filter((s) => s.gradeId === gradeId);
+    const examCount = gradeSubjects.reduce((acc, curr) => acc + (curr.exams?.length || 0), 0);
     return {
       subjectsCount: gradeSubjects.length,
       examsCount: examCount,

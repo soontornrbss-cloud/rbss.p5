@@ -16,6 +16,7 @@ interface StatsBarProps {
   selectedAreaFilter: string;
   onAreaFilterChange: (area: string) => void;
   onOpenAddSubject: () => void;
+  isAdmin?: boolean;
 }
 
 const LEARNING_AREAS_LIST: { id: string; name: string }[] = [
@@ -38,6 +39,7 @@ export const StatsBar: React.FC<StatsBarProps> = ({
   selectedAreaFilter,
   onAreaFilterChange,
   onOpenAddSubject,
+  isAdmin = false,
 }) => {
   return (
     <div className="bg-white border-b border-slate-200 py-4" id="grade-header-bar">
@@ -84,15 +86,17 @@ export const StatsBar: React.FC<StatsBarProps> = ({
               <strong className="text-slate-900 font-bold">{examCount} ฉบับ</strong>
             </div>
 
-            <button
-              type="button"
-              id="btn-add-subject-in-grade"
-              onClick={onOpenAddSubject}
-              className="inline-flex items-center gap-1.5 px-3.5 py-2 rounded-xl bg-blue-700 hover:bg-blue-800 text-white text-xs sm:text-sm font-semibold shadow-xs transition-all duration-150 cursor-pointer active:scale-95"
-            >
-              <PlusCircle className="w-4 h-4 text-amber-300" />
-              <span>เพิ่มรายวิชาใน {activeGrade.shortName} (+)</span>
-            </button>
+            {isAdmin && (
+              <button
+                type="button"
+                id="btn-add-subject-in-grade"
+                onClick={onOpenAddSubject}
+                className="inline-flex items-center gap-1.5 px-3.5 py-2 rounded-xl bg-blue-700 hover:bg-blue-800 text-white text-xs sm:text-sm font-semibold shadow-xs transition-all duration-150 cursor-pointer active:scale-95"
+              >
+                <PlusCircle className="w-4 h-4 text-amber-300" />
+                <span>เพิ่มรายวิชาใน {activeGrade.shortName} (+)</span>
+              </button>
+            )}
           </div>
 
         </div>

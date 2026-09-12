@@ -227,6 +227,20 @@ export const HTML_EXAM_TEMPLATES: HtmlExamTemplateOption[] = [
         feedback.textContent = 'ยังไม่ผ่านเกณฑ์ ควรทบทวนบทเรียนเพิ่มเติมนะจ๊ะ';
       }
 
+      // Auto-post score to parent system without manual typing
+      try {
+        if (window.parent && window.parent !== window) {
+          window.parent.postMessage({
+            type: 'AUTO_SUBMIT_SCORE',
+            score: score,
+            maxScore: total,
+            studentName: name
+          }, '*');
+        }
+      } catch (e) {
+        console.warn('postMessage error:', e);
+      }
+
       resultBox.scrollIntoView({ behavior: 'smooth' });
     }
   </script>
@@ -307,7 +321,25 @@ export const HTML_EXAM_TEMPLATES: HtmlExamTemplateOption[] = [
 
     function finishExam() {
       clearInterval(timer);
-      alert('ส่งคำตอบเรียบร้อยแล้ว บันทึกข้อมูลเข้าสู่ระบบคลังข้อสอบ ร.บ.ศ. สำเร็จ');
+      let score = 0;
+      const total = 2;
+      const q1 = document.querySelector('input[name="tq1"]:checked');
+      const q2 = document.querySelector('input[name="tq2"]:checked');
+      if (q1 && q1.value === '1') score++;
+      if (q2 && q2.value === '1') score++;
+
+      alert('ส่งคำตอบเรียบร้อยแล้ว ได้คะแนน ' + score + ' / ' + total + ' คะแนน บันทึกผลสอบเข้าสู่ระบบอัตโนมัติ');
+      try {
+        if (window.parent && window.parent !== window) {
+          window.parent.postMessage({
+            type: 'AUTO_SUBMIT_SCORE',
+            score: score,
+            maxScore: total
+          }, '*');
+        }
+      } catch (e) {
+        console.warn('postMessage error:', e);
+      }
     }
   </script>
 </body>

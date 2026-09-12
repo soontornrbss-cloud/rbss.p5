@@ -73,3 +73,47 @@ export interface SubjectBlock {
   exams: ExamPaper[];
   createdAt: string;
 }
+
+export type UserRole = 'admin' | 'student';
+
+export interface StudentRecord {
+  id: string;
+  studentCode: string;
+  name: string;
+  level: string;
+  room: string;
+  gradeId: string;
+}
+
+export interface AuthSession {
+  role: UserRole;
+  student?: StudentRecord;
+  adminName?: string;
+  loggedInAt: string;
+}
+
+export interface ExamSubmissionRecord {
+  id: string;
+  studentCode: string;
+  studentName: string;
+  level: string;
+  room: string;
+  gradeId: string;
+  subjectId: string;
+  subjectCode: string;
+  subjectName: string;
+  examId: string;
+  examTitle: string;
+  score: number;
+  maxScore: number;
+  percentage: number;
+  isPassed: boolean;
+  timeSpentSeconds?: number;
+  submittedAt: string; // ISO string
+  notes?: string;
+}
+
+export const SCHOOL_LOGO_URL = "https://i.postimg.cc/Jz7Dv2fH/LOGO-rong-re-y-nra-s'dr-bar-ngs-lp-ph-nhl-ng.jpg";
+export const SCHOOL_NAME = "โรงเรียนราษฎร์บำรุงศิลป์";
+export const SCHOOL_AFFILIATION_ADDRESS = "สังกัดฝ่ายการศึกษา อัครสังฆมณฑลกรุงเทพฯ • อ.เสนา จ.พระนครศรีอยุธยา";
+

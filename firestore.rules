@@ -4,5 +4,8 @@ service cloud.firestore {
     match /subjects/{subjectId} {
       allow read, write: if true;
     }
+    match /exam_results/{resultId} {
+      allow read, write: if true;
+    }
   }
 }

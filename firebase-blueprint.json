@@ -17,6 +17,28 @@
         "description": { "type": "string", "description": "Subject description" },
         "updatedAt": { "type": "string", "description": "Last updated timestamp" }
       }
+    },
+    "ExamResult": {
+      "collection": "exam_results",
+      "description": "Individual student test submission scores and audit records",
+      "fields": {
+        "id": { "type": "string", "description": "Unique result record ID" },
+        "studentCode": { "type": "string", "description": "Student identification number" },
+        "studentName": { "type": "string", "description": "Student full name" },
+        "level": { "type": "string", "description": "Education level e.g. ประถมศึกษาปีที่ 1" },
+        "room": { "type": "string", "description": "Classroom number e.g. 1" },
+        "gradeId": { "type": "string", "description": "Grade id key e.g. p1" },
+        "subjectId": { "type": "string", "description": "Subject ID" },
+        "subjectCode": { "type": "string", "description": "Subject code" },
+        "subjectName": { "type": "string", "description": "Subject name" },
+        "examId": { "type": "string", "description": "Exam paper ID" },
+        "examTitle": { "type": "string", "description": "Exam title" },
+        "score": { "type": "number", "description": "Score achieved" },
+        "maxScore": { "type": "number", "description": "Total possible score" },
+        "percentage": { "type": "number", "description": "Score percentage" },
+        "isPassed": { "type": "boolean", "description": "Whether passing threshold was met" },
+        "submittedAt": { "type": "string", "description": "Submission ISO timestamp" }
+      }
     }
   }
 }

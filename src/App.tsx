@@ -1,10 +1,22 @@
 /**
- * ระบบคลังเก็บข้อสอบออนไลน์ โรงเรียนราษฎร์บำรุงศิลป์
- * รองรับระดับชั้น ป.1 - ม.3 และจัดการบล็อกรายวิชาแบบ Dynamic (Client-Side)
+ * ระบบคลังเก็บข้อสอบออนไลน์ & ระบบรายงานคะแนนมาตรฐาน
+ * โรงเรียนราษฎร์บำรุงศิลป์
+ * 
+ * 1. Admin: นำเข้า แก้ไข ลบ ข้อสอบ และจัดการผลคะแนนนักเรียน
+ * 2. นักเรียน: เลือกทำแบบทดสอบ บันทึกคะแนน และออกใบรายงานผลมาตรฐานรายบุคคล
+ * 3. ฐานข้อมูลนักเรียน 1,221 รายชื่อ และระบบ Cloud Real-Time Firebase
  */
 
 import React, { useState, useEffect, useMemo } from 'react';
-import { GradeId, SubjectBlock, ExamPaper, GradeConfig } from './types';
+import { 
+  GradeId, 
+  SubjectBlock, 
+  ExamPaper, 
+  GradeConfig, 
+  AuthSession, 
+  StudentRecord, 
+  ExamSubmissionRecord 
+} from './types';
 import { GRADE_CONFIGS, INITIAL_SUBJECTS } from './data/initialData';
 import { Header } from './components/Header';
 import { GradeNavigation } from './components/GradeNavigation';
@@ -16,17 +28,28 @@ import { ExamDetailModal } from './components/ExamDetailModal';
 import { ReportSummaryModal } from './components/ReportSummaryModal';
 import { AdminHtmlExamModal } from './components/AdminHtmlExamModal';
 import { HtmlExamPlayerModal } from './components/HtmlExamPlayerModal';
+import { LoginModal } from './components/LoginModal';
+import { StudentScoreReportModal } from './components/StudentScoreReportModal';
+import { AdminScoreManagementModal } from './components/AdminScoreManagementModal';
+import { ClassroomScoreReportModal } from './components/ClassroomScoreReportModal';
 import { Footer } from './components/Footer';
+
 import { 
   subscribeToSubjects, 
   saveSubjectToCloud, 
   deleteSubjectFromCloud, 
   saveExamToSubjectInCloud, 
   deleteExamFromSubjectInCloud, 
-  seedInitialSubjects, 
   syncAllSubjectsToCloud,
   CloudSyncStatus
 } from './services/examSyncService';
+
+import { 
+  subscribeToScores, 
+  submitExamScore, 
+  getLocalScores 
+} from './services/scoreService';
+
 import { 
   PlusCircle, 
   FileText, 
@@ -38,14 +61,62 @@ import {
   GraduationCap,
   Code2,
   Sparkles,
-  Cloud
+  Cloud,
+  Award,
+  User,
+  ShieldCheck,
+  Info
 } from 'lucide-react';
 
 const STORAGE_KEY = 'rbss_exam_repository_data_v1';
+const AUTH_STORAGE_KEY = 'rbss_auth_session';
 
 export default function App() {
-  // 1. Core State
-  const [activeGradeId, setActiveGradeId] = useState<GradeId>('p1');
+  // 1. Authentication State
+  const [currentSession, setCurrentSession] = useState<AuthSession | null>(() => {
+    try {
+      const savedAuth = localStorage.getItem(AUTH_STORAGE_KEY);
+      if (savedAuth) {
+        return JSON.parse(savedAuth);
+      }
+    } catch (e) {
+      console.warn('Failed to parse saved auth session:', e);
+    }
+    return null;
+  });
+
+  const [isLoginModalOpen, setIsLoginModalOpen] = useState(true);
+
+  // When session changes, sync to localStorage
+  const handleLoginSuccess = (session: AuthSession) => {
+    setCurrentSession(session);
+    try {
+      localStorage.setItem(AUTH_STORAGE_KEY, JSON.stringify(session));
+    } catch (e) {
+      console.warn('Failed to save auth to localStorage:', e);
+    }
+
+    // If student logged in, automatically navigate to their grade!
+    if (session.role === 'student' && session.student?.gradeId) {
+      setActiveGradeId(session.student.gradeId);
+    }
+
+    showToast(`ยินดีต้อนรับ ${session.role === 'admin' ? session.adminName || 'ผู้ดูแลระบบ' : session.student?.name}`);
+  };
+
+  const handleLogout = () => {
+    setCurrentSession(null);
+    try {
+      localStorage.removeItem(AUTH_STORAGE_KEY);
+    } catch (e) {
+      console.warn('Failed to remove auth session:', e);
+    }
+    showToast('ออกจากระบบเรียบร้อยแล้ว');
+    setIsLoginModalOpen(true);
+  };
+
+  // 2. Core Exam Data & Cloud State
+  const [activeGradeId, setActiveGradeId] = useState<GradeId>('p5'); // Default to P.5 (rbss-p5)
   const [subjects, setSubjects] = useState<SubjectBlock[]>(() => {
     try {
       const saved = localStorage.getItem(STORAGE_KEY);
@@ -58,11 +129,23 @@ export default function App() {
     return INITIAL_SUBJECTS;
   });
 
-  // Cloud Sync State
+  // 3. Real-time Student Exam Scores State
+  const [allScores, setAllScores] = useState<ExamSubmissionRecord[]>(() => getLocalScores());
+
+  useEffect(() => {
+    const unsubScores = subscribeToScores((updatedScores) => {
+      setAllScores(updatedScores);
+    });
+    return () => {
+      unsubScores();
+    };
+  }, []);
+
+  // Cloud Sync Status State
   const [cloudStatus, setCloudStatus] = useState<CloudSyncStatus>('connecting');
   const [cloudMessage, setCloudMessage] = useState<string>('กำลังเชื่อมต่อฐานข้อมูล Cloud (Firebase)...');
 
-  // Real-time Firestore Cloud Synchronization
+  // Real-time Firestore Cloud Synchronization for Subjects & Exams
   useEffect(() => {
     const unsubscribe = subscribeToSubjects(
       (updatedSubjects) => {
@@ -81,7 +164,7 @@ export default function App() {
     };
   }, []);
 
-  // Save to localStorage as a fallback local cache
+  // Save subjects to localStorage as a fallback local cache
   useEffect(() => {
     try {
       localStorage.setItem(STORAGE_KEY, JSON.stringify(subjects));
@@ -90,13 +173,13 @@ export default function App() {
     }
   }, [subjects]);
 
-  // 2. Filter States
+  // 4. Filter States
   const [searchQuery, setSearchQuery] = useState('');
   const [selectedYear, setSelectedYear] = useState('all');
   const [selectedTerm, setSelectedTerm] = useState('all');
   const [selectedAreaFilter, setSelectedAreaFilter] = useState('all');
 
-  // 3. Modals State
+  // 5. Modals State
   const [isAddSubjectOpen, setIsAddSubjectOpen] = useState(false);
   const [isAddExamOpen, setIsAddExamOpen] = useState(false);
   const [targetSubjectForExam, setTargetSubjectForExam] = useState<SubjectBlock | null>(null);
@@ -105,7 +188,7 @@ export default function App() {
   const [selectedSubjectForDetail, setSelectedSubjectForDetail] = useState<SubjectBlock | null>(null);
   const [isReportModalOpen, setIsReportModalOpen] = useState(false);
 
-  // 4. Admin HTML Exam Modal & Interactive Player States
+  // Admin HTML Exam Modal & Interactive Player States
   const [isAdminHtmlModalOpen, setIsAdminHtmlModalOpen] = useState(false);
   const [targetSubjectForHtml, setTargetSubjectForHtml] = useState<SubjectBlock | null>(null);
   const [editingHtmlExam, setEditingHtmlExam] = useState<ExamPaper | null>(null);
@@ -114,7 +197,13 @@ export default function App() {
   const [playingHtmlExam, setPlayingHtmlExam] = useState<ExamPaper | null>(null);
   const [playingHtmlSubject, setPlayingHtmlSubject] = useState<SubjectBlock | null>(null);
 
-  // 5. Notification Toast State
+  // Standard Score Report Modals State
+  const [isStudentReportOpen, setIsStudentReportOpen] = useState(false);
+  const [selectedReportStudent, setSelectedReportStudent] = useState<StudentRecord | null>(null);
+  const [isAdminScoresModalOpen, setIsAdminScoresModalOpen] = useState(false);
+  const [isClassroomReportOpen, setIsClassroomReportOpen] = useState(false);
+
+  // Notification Toast State
   const [toastMessage, setToastMessage] = useState<string | null>(null);
 
   const showToast = (message: string) => {
@@ -130,18 +219,18 @@ export default function App() {
   }, [activeGradeId]);
 
   // Total school counts
-  const totalSubjectsCount = subjects.length;
+  const totalSubjectsCount = (subjects || []).length;
   const totalExamsCount = useMemo(() => {
-    return subjects.reduce((acc, curr) => acc + curr.exams.length, 0);
+    return (subjects || []).reduce((acc, curr) => acc + (curr?.exams?.length || 0), 0);
   }, [subjects]);
 
   // Subjects in the current active grade
   const currentGradeSubjects = useMemo(() => {
-    return subjects.filter((s) => s.gradeId === activeGradeId);
+    return (subjects || []).filter((s) => s && s.gradeId === activeGradeId);
   }, [subjects, activeGradeId]);
 
   const currentGradeExamsCount = useMemo(() => {
-    return currentGradeSubjects.reduce((acc, curr) => acc + curr.exams.length, 0);
+    return currentGradeSubjects.reduce((acc, curr) => acc + (curr?.exams?.length || 0), 0);
   }, [currentGradeSubjects]);
 
   // Filtered subjects based on search query, academic filters, and learning area
@@ -183,9 +272,21 @@ export default function App() {
     });
   }, [currentGradeSubjects, selectedAreaFilter, selectedYear, selectedTerm, searchQuery]);
 
-  // 5. Actions Handlers with Real-Time Cloud Persistence
-  // Add new subject dynamically
+  // Check Admin Permission helper
+  const requireAdmin = (): boolean => {
+    if (currentSession?.role !== 'admin') {
+      alert('คุณไม่มีสิทธิ์ในการนำเข้า แก้ไข หรือลบข้อสอบ (เฉพาะผู้ดูแลระบบ/Admin เท่านั้น)');
+      setIsLoginModalOpen(true);
+      return false;
+    }
+    return true;
+  };
+
+  // 6. Action Handlers with Strict RBAC & Cloud Persistence
+  // Add new subject dynamically (Admin only)
   const handleAddSubject = async (newSubject: SubjectBlock) => {
+    if (!requireAdmin()) return;
+
     // Optimistic UI update
     setSubjects((prev) => [newSubject, ...prev]);
     if (newSubject.gradeId !== activeGradeId) {
@@ -202,8 +303,10 @@ export default function App() {
     }
   };
 
-  // Delete subject
+  // Delete subject (Admin only)
   const handleDeleteSubject = async (subjectId: string, subjectName: string) => {
+    if (!requireAdmin()) return;
+
     const confirmDelete = window.confirm(`คุณแน่ใจหรือไม่ว่าต้องการลบรายวิชา "${subjectName}" และข้อสอบทั้งหมดในวิชานี้? (ข้อมูลจะถูกลบออกจาก Cloud ด้วย)`);
     if (confirmDelete) {
       setSubjects((prev) => prev.filter((s) => s.id !== subjectId));
@@ -217,8 +320,10 @@ export default function App() {
     }
   };
 
-  // Add exam paper into a specific subject
+  // Add exam paper into a specific subject (Admin only)
   const handleAddExam = async (subjectId: string, newExam: ExamPaper) => {
+    if (!requireAdmin()) return;
+
     setSubjects((prev) =>
       prev.map((sub) => {
         if (sub.id === subjectId) {
@@ -241,8 +346,10 @@ export default function App() {
     }
   };
 
-  // Delete exam paper from a subject
+  // Delete exam paper from a subject (Admin only)
   const handleDeleteExam = async (subjectId: string, examId: string, examTitle: string) => {
+    if (!requireAdmin()) return;
+
     const confirmDelete = window.confirm(`คุณแน่ใจหรือไม่ว่าต้องการลบข้อสอบ "${examTitle}"? (จะลบออกจาก Cloud ด้วย)`);
     if (confirmDelete) {
       setSubjects((prev) =>
@@ -266,261 +373,392 @@ export default function App() {
     }
   };
 
-  // Reset to demo initial data in Cloud
+  // Save or update an HTML exam (Admin only)
+  const handleSaveHtmlExam = async (subjectId: string, examData: ExamPaper) => {
+    if (!requireAdmin()) return;
+
+    let isEdit = false;
+    setSubjects((prev) =>
+      prev.map((sub) => {
+        if (sub.id === subjectId) {
+          const existingIndex = sub.exams.findIndex((e) => e.id === examData.id);
+          let updatedExams: ExamPaper[];
+          if (existingIndex >= 0) {
+            isEdit = true;
+            updatedExams = [...sub.exams];
+            updatedExams[existingIndex] = examData;
+          } else {
+            updatedExams = [examData, ...sub.exams];
+          }
+          return {
+            ...sub,
+            exams: updatedExams,
+          };
+        }
+        return sub;
+      })
+    );
+
+    showToast(isEdit ? `อัปเดตโค้ดข้อสอบ "${examData.title}" ขึ้น Cloud...` : `บันทึกข้อสอบ HTML "${examData.title}" ขึ้น Cloud...`);
+
+    try {
+      await saveExamToSubjectInCloud(subjectId, examData, subjects);
+      showToast(`ซิงค์ข้อสอบ "${examData.title}" สำเร็จ ทุกเครื่องเห็นพร้อมกันทันที`);
+    } catch (err: any) {
+      console.error('Failed to sync HTML exam to cloud:', err);
+    }
+  };
+
+  // Reset to initial sample data (Admin only)
   const handleResetData = async () => {
-    const confirmReset = window.confirm('คุณต้องการคืนค่าข้อมูลตัวอย่างเริ่มต้นทั้งหมดใช่หรือไม่? ข้อมูลบนระบบ Cloud จะถูกอัปเดตใหม่เพื่อให้ทุกเครื่องแสดงตรงกัน');
+    if (!requireAdmin()) return;
+
+    const confirmReset = window.confirm(
+      'คุณต้องการรีเซ็ตข้อมูลและซิงค์ข้อมูลตัวอย่างมาตรฐานของโรงเรียนราษฎร์บำรุงศิลป์ขึ้น Cloud ใหม่ทั้งหมดใช่หรือไม่?'
+    );
     if (confirmReset) {
       setSubjects(INITIAL_SUBJECTS);
-      localStorage.removeItem(STORAGE_KEY);
-      showToast('กำลังคืนค่าและซิงค์ข้อมูลเริ่มต้นขึ้น Cloud...');
-
       try {
-        await seedInitialSubjects(INITIAL_SUBJECTS);
-        showToast('คืนค่าข้อมูลรายวิชาและคลังข้อสอบตัวอย่างสำเร็จ ทุกเครื่องซิงค์ตรงกันแล้ว');
+        localStorage.setItem(STORAGE_KEY, JSON.stringify(INITIAL_SUBJECTS));
+        await syncAllSubjectsToCloud(INITIAL_SUBJECTS);
+        showToast('คืนค่าข้อมูลตัวอย่างและซิงค์ขึ้น Cloud เรียบร้อยแล้ว');
       } catch (err: any) {
-        console.error('Failed to seed cloud subjects:', err);
-        showToast('คืนค่าข้อมูลในเครื่องสำเร็จ');
+        console.error('Failed to reset cloud data:', err);
       }
     }
   };
 
-  // Force manual sync all to Cloud
+  // Force sync helper
   const handleForceSync = async () => {
-    showToast('กำลังส่งข้อมูลรายวิชาและข้อสอบทั้งหมดขึ้น Cloud...');
+    showToast('กำลังบังคับซิงค์ข้อมูลขึ้น Cloud...');
     try {
       await syncAllSubjectsToCloud(subjects);
-      showToast('ซิงค์ข้อมูลทั้งหมดขึ้น Cloud เรียบร้อยแล้ว ทุกเครื่องเห็นข้อมูลเดียวกัน');
+      showToast('ซิงค์ข้อมูลขึ้น Cloud เรียบร้อยแล้ว');
     } catch (err: any) {
       console.error('Force sync error:', err);
-      showToast(`เกิดข้อผิดพลาดในการซิงค์: ${err?.message || ''}`);
     }
   };
 
-  // Open modal helpers
-  const handleOpenAddExam = (subject: SubjectBlock) => {
-    setTargetSubjectForExam(subject);
-    setIsAddExamOpen(true);
-  };
-
+  // Open Exam Detail modal
   const handleOpenExamDetail = (exam: ExamPaper, subject: SubjectBlock) => {
     setSelectedExam(exam);
     setSelectedSubjectForDetail(subject);
     setIsExamDetailOpen(true);
   };
 
-  // Open Admin HTML Exam input block
+  // Open Add Exam modal (Admin only)
+  const handleOpenAddExam = (subject: SubjectBlock) => {
+    if (!requireAdmin()) return;
+    setTargetSubjectForExam(subject);
+    setIsAddExamOpen(true);
+  };
+
+  // Open Admin HTML Exam modal (Admin only)
   const handleOpenAdminHtml = (subject?: SubjectBlock, exam?: ExamPaper) => {
-    const target = subject || currentGradeSubjects[0] || subjects[0] || null;
-    if (!target) {
-      showToast('กรุณาสร้างรายวิชาก่อนใช้งานบล็อครับค่าข้อสอบ HTML');
-      return;
-    }
-    setTargetSubjectForHtml(target);
+    if (!requireAdmin()) return;
+    setTargetSubjectForHtml(subject || null);
     setEditingHtmlExam(exam || null);
     setIsAdminHtmlModalOpen(true);
   };
 
-  // Save HTML exam (new or update existing) with direct Firestore Cloud sync
-  const handleSaveHtmlExam = async (subjectId: string, exam: ExamPaper) => {
-    // 1. Optimistic update in state so current screen updates instantly
-    setSubjects((prev) =>
-      prev.map((sub) => {
-        if (sub.id === subjectId) {
-          const exists = sub.exams.some((e) => e.id === exam.id);
-          if (exists) {
-            return {
-              ...sub,
-              exams: sub.exams.map((e) => (e.id === exam.id ? exam : e)),
-            };
-          } else {
-            return {
-              ...sub,
-              exams: [exam, ...sub.exams],
-            };
-          }
-        }
-        return sub;
-      })
-    );
-    showToast(`กำลังบันทึกและอัปเดตข้อสอบ HTML "${exam.title}" ขึ้น Cloud...`);
-
-    // 2. Persist to Firestore Cloud Database so all other machines get updated immediately
-    try {
-      await saveExamToSubjectInCloud(subjectId, exam, subjects);
-      showToast(`อัปเดตข้อสอบ HTML "${exam.title}" ขึ้น Cloud สำเร็จ! ทุกเครื่องเห็นข้อสอบใหม่ทันที`);
-    } catch (err: any) {
-      console.error('Failed to save HTML exam to Firestore:', err);
-      showToast(`บันทึกในเครื่องแล้ว แต่เกิดปัญหาในการซิงค์ขึ้น Cloud: ${err?.message || ''}`);
-    }
-  };
-
-  // Open Interactive HTML Player
+  // Launch interactive HTML exam player (Available to students & admins!)
   const handlePlayHtmlExam = (exam: ExamPaper, subject: SubjectBlock) => {
     setPlayingHtmlExam(exam);
     setPlayingHtmlSubject(subject);
     setIsHtmlPlayerOpen(true);
   };
 
+  // Submit Score from Exam Player
+  const handleSubmitExamScore = async (record: ExamSubmissionRecord) => {
+    await submitExamScore(record);
+    showToast(`บันทึกผลสอบของ ${record.studentName} ในวิชา ${record.subjectName} เรียบร้อยแล้ว!`);
+  };
+
+  // Open Standard Student Score Report
+  const handleOpenStudentReport = (student: StudentRecord) => {
+    setSelectedReportStudent(student);
+    setIsStudentReportOpen(true);
+  };
+
+  // Handle open own report for current logged-in student
+  const handleOpenMyReport = () => {
+    if (currentSession?.student) {
+      handleOpenStudentReport(currentSession.student);
+    } else {
+      setIsLoginModalOpen(true);
+    }
+  };
+
+  const isAdmin = currentSession?.role === 'admin';
+  const isStudent = currentSession?.role === 'student';
+
   return (
-    <div className="min-h-screen flex flex-col bg-slate-100 text-slate-800" id="school-exam-app">
-      {/* Toast Notification */}
+    <div className="min-h-screen flex flex-col bg-slate-100 font-sans text-slate-800" id="rbss-app-root">
+      
+      {/* Real-Time Toast Notification */}
       {toastMessage && (
         <div 
-          id="toast-notification"
-          className="fixed bottom-5 right-5 z-50 bg-slate-900 text-white px-4 py-3 rounded-xl shadow-xl flex items-center gap-2.5 text-xs sm:text-sm font-medium border border-slate-700 animate-in fade-in slide-in-from-bottom-5 duration-200"
+          id="system-toast"
+          className="fixed bottom-5 right-5 z-50 bg-slate-950/95 text-white px-4 py-3 rounded-xl shadow-xl flex items-center gap-3 border border-slate-700 animate-in fade-in slide-in-from-bottom-5 duration-200"
         >
-          <CheckCircle2 className="w-5 h-5 text-emerald-400 shrink-0" />
-          <span>{toastMessage}</span>
+          <div className="w-7 h-7 rounded-full bg-emerald-500/20 text-emerald-400 flex items-center justify-center shrink-0">
+            <CheckCircle2 className="w-4 h-4" />
+          </div>
+          <span className="text-xs sm:text-sm font-medium pr-2">{toastMessage}</span>
         </div>
       )}
 
-      {/* Main Header with school title and search/filters */}
-      <Header
-        searchQuery={searchQuery}
-        onSearchChange={setSearchQuery}
-        selectedYear={selectedYear}
-        onYearChange={setSelectedYear}
-        selectedTerm={selectedTerm}
-        onTermChange={setSelectedTerm}
-        onOpenAddSubject={() => setIsAddSubjectOpen(true)}
-        onOpenAdminHtml={() => handleOpenAdminHtml()}
-        onResetData={handleResetData}
-        activeGrade={activeGrade}
-        totalSubjects={totalSubjectsCount}
-        totalExams={totalExamsCount}
-        cloudStatus={cloudStatus}
-        cloudMessage={cloudMessage}
-        onForceSync={handleForceSync}
-      />
+      {/* Main App Layout (Hidden during print so modal reports print cleanly) */}
+      <div id="app-main-layout" className="flex-1 flex flex-col print:hidden">
+        {/* Main School Header with Login & Real-time Cloud Sync */}
+        <Header
+          searchQuery={searchQuery}
+          onSearchChange={setSearchQuery}
+          selectedYear={selectedYear}
+          onYearChange={setSelectedYear}
+          selectedTerm={selectedTerm}
+          onTermChange={setSelectedTerm}
+          onOpenAddSubject={() => {
+            if (requireAdmin()) setIsAddSubjectOpen(true);
+          }}
+          onOpenAdminHtml={() => handleOpenAdminHtml()}
+          onResetData={handleResetData}
+          activeGrade={activeGrade}
+          totalSubjects={totalSubjectsCount}
+          totalExams={totalExamsCount}
+          cloudStatus={cloudStatus}
+          cloudMessage={cloudMessage}
+          onForceSync={handleForceSync}
+          currentSession={currentSession}
+          onOpenLoginModal={() => setIsLoginModalOpen(true)}
+          onLogout={handleLogout}
+          onOpenMyReport={handleOpenMyReport}
+          onOpenAdminScores={() => setIsAdminScoresModalOpen(true)}
+          onOpenClassroomReport={() => setIsClassroomReportOpen(true)}
+        />
 
-      {/* Grade Level Navigation (ป.1 - ม.3 Tabs) */}
-      <GradeNavigation
-        grades={GRADE_CONFIGS}
-        activeGradeId={activeGradeId}
-        onSelectGrade={setActiveGradeId}
-        subjects={subjects}
-      />
+        {/* Grade Level Selector (ป.1 - ม.3) */}
+        <GradeNavigation
+          grades={GRADE_CONFIGS}
+          activeGradeId={activeGradeId}
+          onSelectGrade={(gradeId) => setActiveGradeId(gradeId)}
+          subjects={subjects}
+          allSubjects={subjects}
+        />
 
-      {/* Current Grade Header and Category Filter Bar */}
-      <StatsBar
-        activeGrade={activeGrade}
-        subjectCount={currentGradeSubjects.length}
-        examCount={currentGradeExamsCount}
-        selectedAreaFilter={selectedAreaFilter}
-        onAreaFilterChange={setSelectedAreaFilter}
-        onOpenAddSubject={() => setIsAddSubjectOpen(true)}
-      />
+        {/* Active Grade Title & Learning Area Filter */}
+        <StatsBar
+          activeGrade={activeGrade}
+          subjectCount={filteredGradeSubjects.length}
+          examCount={currentGradeExamsCount}
+          selectedAreaFilter={selectedAreaFilter}
+          onAreaFilterChange={setSelectedAreaFilter}
+          onOpenAddSubject={() => {
+            if (requireAdmin()) setIsAddSubjectOpen(true);
+          }}
+          isAdmin={isAdmin}
+        />
 
-      {/* Main Content Area: Dynamic HTML Subject Blocks */}
-      <main className="flex-1 max-w-7xl w-full mx-auto px-4 sm:px-6 lg:px-8 py-6" id="subject-blocks-container">
-        
-        {/* Top Grade Status and Quick Actions */}
-        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 mb-5">
-          <div className="flex items-center gap-2">
-            <h3 className="text-base font-bold text-slate-800 flex items-center gap-2">
-              <span>รายวิชาและบล็อกข้อสอบ</span>
-              <span className="text-xs font-normal text-slate-500">
-                (แสดง {filteredGradeSubjects.length} จาก {currentGradeSubjects.length} วิชา ใน {activeGrade.shortName})
-              </span>
-            </h3>
-          </div>
-
-          <div className="flex items-center gap-2 flex-wrap">
-            <button
-              type="button"
-              id="btn-global-admin-html"
-              onClick={() => handleOpenAdminHtml()}
-              className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-violet-700 hover:bg-violet-800 text-white text-xs font-semibold shadow-2xs transition-colors cursor-pointer"
-              title="บล็อครับค่าข้อสอบออนไลน์ HTML โดย Admin"
-            >
-              <Code2 className="w-3.5 h-3.5 text-amber-300" />
-              <span>รับค่าข้อสอบ HTML (Admin)</span>
-            </button>
-
-            <button
-              type="button"
-              onClick={() => setIsReportModalOpen(true)}
-              className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-white hover:bg-slate-50 border border-slate-300 text-slate-700 text-xs font-medium transition-colors shadow-2xs cursor-pointer"
-            >
-              <FileSpreadsheet className="w-3.5 h-3.5 text-blue-600" />
-              <span>พิมพ์รายงานสรุปคลังข้อสอบ</span>
-            </button>
-
-            <button
-              type="button"
-              onClick={() => setIsAddSubjectOpen(true)}
-              className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-blue-700 hover:bg-blue-800 text-white text-xs font-semibold shadow-2xs transition-colors cursor-pointer"
-            >
-              <PlusCircle className="w-3.5 h-3.5 text-amber-300" />
-              <span>เพิ่มวิชา (+)</span>
-            </button>
-          </div>
-        </div>
-
-        {/* Dynamic HTML Blocks Grid */}
-        {filteredGradeSubjects.length === 0 ? (
-          <div className="bg-white rounded-2xl border border-dashed border-slate-300 p-8 sm:p-12 text-center my-6">
-            <div className="w-14 h-14 mx-auto rounded-2xl bg-blue-50 text-blue-600 flex items-center justify-center mb-3">
-              <BookOpen className="w-7 h-7" />
-            </div>
-            <h4 className="text-base font-bold text-slate-800">
-              {searchQuery || selectedAreaFilter !== 'all'
-                ? 'ไม่พบรายวิชาที่ตรงกับเงื่อนไขการค้นหา'
-                : `ยังไม่มีรายวิชาในระดับชั้น ${activeGrade.fullName}`}
-            </h4>
-            <p className="text-xs sm:text-sm text-slate-500 max-w-md mx-auto mt-1 mb-5">
-              {searchQuery || selectedAreaFilter !== 'all'
-                ? 'ลองเปลี่ยนคำค้นหา หรือรีเซ็ตตัวกรองกลุ่มสาระการเรียนรู้'
-                : 'คุณสามารถกดปุ่ม "เพิ่มรายวิชา (+)" หรือ "รับค่าข้อสอบ HTML (Admin)" เพื่อสร้างบล็อกวิชาและบันทึกข้อสอบได้ทันที'}
-            </p>
-
-            <div className="flex items-center justify-center gap-2">
-              {(searchQuery || selectedAreaFilter !== 'all') && (
+        {/* Student Welcome Banner (if logged in as Student) */}
+        {isStudent && currentSession.student && (
+          <div className="bg-linear-to-r from-emerald-600 via-teal-700 to-blue-800 text-white shadow-xs">
+            <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-2.5 flex flex-col sm:flex-row sm:items-center justify-between gap-2">
+              <div className="flex items-center gap-2 text-xs">
+                <GraduationCap className="w-4 h-4 text-amber-300" />
+                <span>
+                  ยินดีต้อนรับนักเรียน: <strong>{currentSession.student.name}</strong> 
+                  (รหัสประจำตัว #{currentSession.student.studentCode}) • ชั้น {currentSession.student.level} ห้อง {currentSession.student.room}
+                </span>
+              </div>
+              <div className="flex items-center gap-2">
                 <button
                   type="button"
-                  onClick={() => {
-                    setSearchQuery('');
-                    setSelectedAreaFilter('all');
-                  }}
-                  className="px-4 py-2 rounded-lg bg-slate-100 hover:bg-slate-200 text-slate-700 text-xs font-medium transition-colors"
+                  onClick={handleOpenMyReport}
+                  className="inline-flex items-center gap-1.5 px-3 py-1 rounded-lg bg-amber-400 hover:bg-amber-300 text-blue-950 font-bold text-xs shadow-xs cursor-pointer"
                 >
-                  ล้างตัวกรองทั้งหมด
+                  <Award className="w-3.5 h-3.5" />
+                  <span>ดูใบรายงานผลคะแนนมาตรฐานของฉัน</span>
                 </button>
-              )}
-
-              <button
-                type="button"
-                onClick={() => setIsAddSubjectOpen(true)}
-                className="px-4 py-2 rounded-lg bg-blue-700 hover:bg-blue-800 text-white text-xs font-semibold inline-flex items-center gap-1.5 shadow-sm transition-all"
-              >
-                <PlusCircle className="w-4 h-4 text-amber-300" />
-                <span>เพิ่มรายวิชาในชั้นนี้ (+)</span>
-              </button>
+              </div>
             </div>
-          </div>
-        ) : (
-          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-5" id="subjects-grid">
-            {filteredGradeSubjects.map((subject) => (
-              <SubjectCard
-                key={subject.id}
-                subject={subject}
-                onAddExamToSubject={handleOpenAddExam}
-                onOpenAdminHtmlModal={handleOpenAdminHtml}
-                onPlayHtmlExam={handlePlayHtmlExam}
-                onViewExamDetail={handleOpenExamDetail}
-                onDeleteSubject={handleDeleteSubject}
-                onDeleteExam={handleDeleteExam}
-              />
-            ))}
           </div>
         )}
 
-      </main>
+        {/* Main Content Area */}
+        <main className="flex-1 max-w-7xl w-full mx-auto px-4 sm:px-6 lg:px-8 py-6" id="subject-blocks-container">
+          
+          {/* Top Grade Status and Role Quick Actions */}
+          <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 mb-5">
+            <div className="flex items-center gap-2">
+              <h3 className="text-base font-bold text-slate-800 flex items-center gap-2">
+                <span>รายวิชาและบล็อกข้อสอบ</span>
+                <span className="text-xs font-normal text-slate-500">
+                  (แสดง {filteredGradeSubjects.length} จาก {currentGradeSubjects.length} วิชา ใน {activeGrade.shortName})
+                </span>
+              </h3>
+            </div>
 
-      {/* Footer */}
-      <Footer />
+            <div className="flex items-center gap-2 flex-wrap">
+              {/* Admin only actions */}
+              {isAdmin && (
+                <>
+                  <button
+                    type="button"
+                    id="btn-global-admin-html"
+                    onClick={() => handleOpenAdminHtml()}
+                    className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-violet-700 hover:bg-violet-800 text-white text-xs font-semibold shadow-2xs transition-colors cursor-pointer"
+                    title="บล็อครับค่าข้อสอบออนไลน์ HTML โดย Admin"
+                  >
+                    <Code2 className="w-3.5 h-3.5 text-amber-300" />
+                    <span>รับค่าข้อสอบ HTML (Admin)</span>
+                  </button>
+
+                  <button
+                    type="button"
+                    onClick={() => setIsAdminScoresModalOpen(true)}
+                    className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-indigo-700 hover:bg-indigo-800 text-white text-xs font-semibold shadow-2xs transition-colors cursor-pointer"
+                    title="เปิดดูและจัดการรายงานคะแนนสอบนักเรียนทั้งหมด"
+                  >
+                    <Award className="w-3.5 h-3.5 text-amber-300" />
+                    <span>ศูนย์รายงานคะแนนนักเรียน</span>
+                  </button>
+
+                  <button
+                    type="button"
+                    onClick={() => setIsAddSubjectOpen(true)}
+                    className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-blue-700 hover:bg-blue-800 text-white text-xs font-semibold shadow-2xs transition-colors cursor-pointer"
+                  >
+                    <PlusCircle className="w-3.5 h-3.5 text-amber-300" />
+                    <span>เพิ่มวิชา (+)</span>
+                  </button>
+                </>
+              )}
+
+              {/* Student shortcut */}
+              {isStudent && (
+                <button
+                  type="button"
+                  onClick={handleOpenMyReport}
+                  className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-bold shadow-2xs transition-colors cursor-pointer"
+                >
+                  <Award className="w-3.5 h-3.5 text-amber-300" />
+                  <span>ใบรายงานผลคะแนนมาตรฐาน</span>
+                </button>
+              )}
+
+              {/* General Report Summary */}
+              <button
+                type="button"
+                onClick={() => setIsReportModalOpen(true)}
+                className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-white hover:bg-slate-50 border border-slate-300 text-slate-700 text-xs font-medium transition-colors shadow-2xs cursor-pointer"
+              >
+                <FileSpreadsheet className="w-3.5 h-3.5 text-blue-600" />
+                <span>พิมพ์รายงานสรุปคลังข้อสอบ</span>
+              </button>
+            </div>
+          </div>
+
+          {/* Dynamic HTML Blocks Grid */}
+          {filteredGradeSubjects.length === 0 ? (
+            <div className="bg-white rounded-2xl border border-dashed border-slate-300 p-8 sm:p-12 text-center my-6">
+              <div className="w-14 h-14 mx-auto rounded-2xl bg-blue-50 text-blue-600 flex items-center justify-center mb-3">
+                <BookOpen className="w-7 h-7" />
+              </div>
+              <h4 className="text-base font-bold text-slate-800 mb-1">
+                ไม่พบรายวิชาในเงื่อนไขการค้นหา
+              </h4>
+              <p className="text-xs text-slate-500 max-w-md mx-auto mb-4">
+                {searchQuery || selectedAreaFilter !== 'all' || selectedYear !== 'all' || selectedTerm !== 'all'
+                  ? 'ลองปรับเปลี่ยนคำค้นหา หรือล้างตัวกรองเพื่อดูวิชาทั้งหมดในระดับชั้นนี้'
+                  : `ยังไม่มีการเพิ่มรายวิชาในระดับชั้น ${activeGrade.fullName}`}
+              </p>
+              
+              {isAdmin && (
+                <div className="flex items-center justify-center gap-2">
+                  <button
+                    type="button"
+                    onClick={() => setIsAddSubjectOpen(true)}
+                    className="inline-flex items-center gap-1.5 px-4 py-2 rounded-xl bg-blue-700 hover:bg-blue-800 text-white text-xs font-semibold shadow-xs transition-colors cursor-pointer"
+                  >
+                    <PlusCircle className="w-4 h-4 text-amber-300" />
+                    <span>เพิ่มรายวิชาใหม่ใน {activeGrade.shortName}</span>
+                  </button>
+                </div>
+              )}
+            </div>
+          ) : (
+            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-5" id="subjects-grid">
+              {filteredGradeSubjects.map((subject) => (
+                <SubjectCard
+                  key={subject.id}
+                  subject={subject}
+                  onAddExamToSubject={handleOpenAddExam}
+                  onOpenAdminHtmlModal={handleOpenAdminHtml}
+                  onPlayHtmlExam={handlePlayHtmlExam}
+                  onViewExamDetail={handleOpenExamDetail}
+                  onDeleteSubject={handleDeleteSubject}
+                  onDeleteExam={handleDeleteExam}
+                  currentSession={currentSession}
+                  allScores={allScores}
+                />
+              ))}
+            </div>
+          )}
+
+        </main>
+
+        {/* Footer */}
+        <Footer />
+      </div>
 
       {/* Modals */}
+      <LoginModal
+        isOpen={isLoginModalOpen}
+        onClose={() => setIsLoginModalOpen(false)}
+        onLoginSuccess={handleLoginSuccess}
+      />
+
+      {/* Standard Student Score Report Modal */}
+      <StudentScoreReportModal
+        isOpen={isStudentReportOpen}
+        onClose={() => {
+          setIsStudentReportOpen(false);
+          setSelectedReportStudent(null);
+        }}
+        student={selectedReportStudent}
+        allScores={allScores}
+        allSubjects={subjects}
+      />
+
+      {/* Admin Score Management Dashboard Modal */}
+      <AdminScoreManagementModal
+        isOpen={isAdminScoresModalOpen}
+        onClose={() => setIsAdminScoresModalOpen(false)}
+        allScores={allScores}
+        allSubjects={subjects}
+        onOpenStudentReport={(student) => {
+          setIsAdminScoresModalOpen(false);
+          handleOpenStudentReport(student);
+        }}
+        onOpenClassroomReport={() => {
+          setIsAdminScoresModalOpen(false);
+          setIsClassroomReportOpen(true);
+        }}
+      />
+
+      {/* Classroom-based Score Report Modal for Teachers */}
+      <ClassroomScoreReportModal
+        isOpen={isClassroomReportOpen}
+        onClose={() => setIsClassroomReportOpen(false)}
+        allScores={allScores}
+        allSubjects={subjects}
+        onOpenStudentReport={(student) => {
+          handleOpenStudentReport(student);
+        }}
+        initialLevel={activeGrade.name}
+      />
+
+      {/* Add Subject Modal (Admin only) */}
       <AddSubjectModal
         isOpen={isAddSubjectOpen}
         onClose={() => setIsAddSubjectOpen(false)}
@@ -529,6 +767,7 @@ export default function App() {
         onAddSubject={handleAddSubject}
       />
 
+      {/* Add Exam Modal (Admin only) */}
       <AddExamModal
         isOpen={isAddExamOpen}
         onClose={() => {
@@ -540,6 +779,7 @@ export default function App() {
         onOpenAdminHtmlModal={handleOpenAdminHtml}
       />
 
+      {/* Exam Detail Modal */}
       <ExamDetailModal
         isOpen={isExamDetailOpen}
         onClose={() => {
@@ -553,7 +793,7 @@ export default function App() {
         onOpenEditHtml={(exam, subject) => handleOpenAdminHtml(subject, exam)}
       />
 
-      {/* Admin HTML Exam Input Modal */}
+      {/* Admin HTML Exam Input Modal (Admin only) */}
       <AdminHtmlExamModal
         isOpen={isAdminHtmlModalOpen}
         onClose={() => {
@@ -577,12 +817,17 @@ export default function App() {
         }}
         exam={playingHtmlExam}
         subject={playingHtmlSubject}
+        currentSession={currentSession}
+        onSubmitScore={handleSubmitExamScore}
+        onOpenReport={handleOpenStudentReport}
+        onOpenLoginPrompt={() => setIsLoginModalOpen(true)}
         onOpenEditHtml={(exam, subject) => {
           setIsHtmlPlayerOpen(false);
           handleOpenAdminHtml(subject, exam);
         }}
       />
 
+      {/* Exam Repository Summary Report */}
       <ReportSummaryModal
         isOpen={isReportModalOpen}
         onClose={() => setIsReportModalOpen(false)}

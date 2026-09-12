@@ -1,5 +1,5 @@
 import React from 'react';
-import { GradeConfig, SubjectBlock } from '../types';
+import { GradeConfig, SubjectBlock, SCHOOL_LOGO_URL } from '../types';
 import { X, Printer, FileText, School, Download } from 'lucide-react';
 
 interface ReportSummaryModalProps {
@@ -21,11 +21,12 @@ export const ReportSummaryModal: React.FC<ReportSummaryModalProps> = ({
 
   if (!isOpen) return null;
 
+  const safeSubjects = subjects || [];
   const filteredSubjects = filterGrade === 'all' 
-    ? subjects 
-    : subjects.filter(s => s.gradeId === filterGrade);
+    ? safeSubjects 
+    : safeSubjects.filter(s => s && s.gradeId === filterGrade);
 
-  const totalExams = filteredSubjects.reduce((acc, curr) => acc + curr.exams.length, 0);
+  const totalExams = filteredSubjects.reduce((acc, curr) => acc + (curr.exams?.length || 0), 0);
 
   const handlePrint = () => {
     window.print();
@@ -42,9 +43,14 @@ export const ReportSummaryModal: React.FC<ReportSummaryModalProps> = ({
       >
         {/* Header */}
         <div className="bg-slate-900 text-white px-6 py-4 flex items-center justify-between">
-          <div className="flex items-center gap-2.5">
-            <div className="p-2 rounded-lg bg-slate-800 text-amber-300">
-              <School className="w-5 h-5" />
+          <div className="flex items-center gap-3">
+            <div className="w-10 h-10 rounded-xl bg-white p-0.5 flex items-center justify-center shrink-0 border border-amber-400 overflow-hidden shadow-xs">
+              <img 
+                src={SCHOOL_LOGO_URL} 
+                alt="ตราโรงเรียนราษฎร์บำรุงศิลป์" 
+                className="w-full h-full object-contain rounded-lg"
+                referrerPolicy="no-referrer"
+              />
             </div>
             <div>
               <h2 className="text-base sm:text-lg font-bold">
